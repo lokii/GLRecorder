@@ -1,18 +1,15 @@
 package com.research.GLRecorder;
 
-import android.app.Activity;
-import android.graphics.Rect;
 import android.opengl.GLES20;
 import android.opengl.GLSurfaceView;
 import android.opengl.Matrix;
+import android.text.TextUtils;
 import android.util.Log;
-import android.view.View;
 import com.research.GLRecorder.gles.*;
 
 import javax.microedition.khronos.egl.*;
 import java.io.File;
 import java.io.IOException;
-import java.lang.ref.WeakReference;
 
 /**
  * Created by kanedong on 14-10-10.
@@ -38,8 +35,11 @@ public class GLRecorder {
     private static File mOutputFile;
     // TODO: mActivity.findViewById(R.id.content).getSize
 //    private static WeakReference<Activity> mActivityRef;
+
     private static int mWindowWidth, mWindowHeight;
     private static long mTick;
+    private static String mOutputPath;
+
     // A simple EGL config chooser for get recordable config.
     private static GLSurfaceView.EGLConfigChooser mDefaultConfigChooser = new GLSurfaceView.EGLConfigChooser() {
         @Override
@@ -111,6 +111,13 @@ public class GLRecorder {
         mEglCore.makeCurrent(mWindowSurface);
     }
 
+    public static void setRecordOutputFile(String filePath) {
+        if (!TextUtils.isEmpty(filePath) && !filePath.equals(mOutputPath)) {
+            mOutputPath = filePath;
+            mOutputFile = new File(mOutputPath);
+        }
+    }
+
     public static void startRecording() {
         setRecordingEnabled(true);
     }
@@ -142,7 +149,7 @@ public class GLRecorder {
         if (null != mIdentityMatrix) return;
         Log.d(TAG, "Setup GLRecorder");
 
-        mOutputFile = new File(RECORD_OUTPUT_FILE);
+        setRecordOutputFile(RECORD_OUTPUT_FILE);    // Set default output path.
 
         mIdentityMatrix = new float[16];
         Matrix.setIdentityM(mIdentityMatrix, 0);

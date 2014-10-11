@@ -25,7 +25,8 @@ Make sure your APP project compile with Android API level 18 or above.
         mEGLConfig = config;
         // Some other code.
     }
-@Override
+
+    @Override
     public void onSurfaceChanged(GL10 unused, int width, int height) {
         GLRecorder.init(width, height, mEGLConfig/*Assign in onSurfaceCreated method*/);
         GLRecorder.setRecordOutputFile("/sdcard/glrecord.mp4");     // Set output file path

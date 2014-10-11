@@ -3,13 +3,13 @@ package com.research.GLRecorder;
 import android.app.Activity;
 import android.graphics.Rect;
 import android.opengl.GLES20;
+import android.opengl.GLSurfaceView;
 import android.opengl.Matrix;
 import android.util.Log;
 import android.view.View;
 import com.research.GLRecorder.gles.*;
 
-import javax.microedition.khronos.egl.EGLConfig;
-import javax.microedition.khronos.egl.EGLSurface;
+import javax.microedition.khronos.egl.*;
 import java.io.File;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
@@ -19,32 +19,66 @@ import java.lang.ref.WeakReference;
  */
 public class GLRecorder {
     private static final String TAG = "GLRecorder";
+
+    // TODO: don't use hard code file name.
+    public static final String RECORD_OUTPUT_FILE = "/sdcard/glrecord.mp4";
+    // Extention for surface record
+    private static final int EGL_RECORDABLE_ANDROID = 0x3142;
+
     private static FullFrameRect mFullScreen;
     private static int mOffscreenTexture;
     private static int mFramebuffer;
-    private static int mDepthBuffer;
     private static float[] mIdentityMatrix;
 
     private static EGLSurface mWindowSurface;
     private static TextureMovieEncoder2 mVideoEncoder;
     private static WindowSurface mInputWindowSurface;
-    private static Rect mVideoRect = new Rect();
     private static boolean mRecordingEnabled;
     public static EglCore mEglCore;
     private static File mOutputFile;
-    private static WeakReference<Activity> mActivityRef;
     // TODO: mActivity.findViewById(R.id.content).getSize
+//    private static WeakReference<Activity> mActivityRef;
     private static int mWindowWidth, mWindowHeight;
     private static long mTick;
+    // A simple EGL config chooser for get recordable config.
+    private static GLSurfaceView.EGLConfigChooser mDefaultConfigChooser = new GLSurfaceView.EGLConfigChooser() {
+        @Override
+        public EGLConfig chooseConfig(EGL10 egl, EGLDisplay display) {
+            int renderableType = 4;
 
-    public static void init(Activity activity, EGLConfig currentConfig) {
-        mActivityRef = new WeakReference<Activity>(activity);
+            // The actual surface is generally RGBA or RGBX, so situationally omitting alpha
+            // doesn't really help.  It can also lead to a huge performance hit on glReadPixels()
+            // when reading into a GL_RGBA buffer.
+            int[] attribList = {
+                    EGL11.EGL_RED_SIZE, 8,
+                    EGL11.EGL_GREEN_SIZE, 8,
+                    EGL11.EGL_BLUE_SIZE, 8,
+                    EGL11.EGL_ALPHA_SIZE, 8,
+                    //EGL11.EGL_DEPTH_SIZE, 16,
+                    //EGL11.EGL_STENCIL_SIZE, 8,
+                    EGL11.EGL_RENDERABLE_TYPE, renderableType,
+                    EGL_RECORDABLE_ANDROID, 1,      // set recordable [@-3]
+                    EGL11.EGL_NONE
+            };
+            EGLConfig[] configs = new EGLConfig[1];
+            int[] numConfigs = new int[1];
+            if (!egl.eglChooseConfig(display, attribList, configs, configs.length,
+                    numConfigs)) {
+                return null;
+            }
+            return configs[0];
+        }
+    };
+
+    public static void init(int w, int h, EGLConfig currentConfig) {
+//        mActivityRef = new WeakReference<Activity>(activity);
         mEglCore = new EglCore(currentConfig);
-//        setup();
+        setup(w, h);
     }
 
     public static void beginDraw() {
         if (!mRecordingEnabled) return;
+        // Make sure the video fps rate was half of game fps(usually about 30fps)
         if (mTick % 2 == 0) return;
 
         // Render offscreen.
@@ -64,21 +98,16 @@ public class GLRecorder {
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
         GlUtil.checkGlError("glBindFramebuffer");
         mFullScreen.drawFrame(mOffscreenTexture, mIdentityMatrix);
-//        boolean swapResult = mWindowSurface.swapBuffers();
 
         // Blit to encoder.
         mVideoEncoder.frameAvailableSoon();
         mInputWindowSurface.makeCurrent();
         GLES20.glClearColor(1.0f, 1.0f, 1.0f, 1.0f);    // again, only really need to
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);     //  clear pixels outside rect
-//        GLES20.glViewport(mVideoRect.left, mVideoRect.top,
-//                mVideoRect.width(), mVideoRect.height());
         mFullScreen.drawFrame(mOffscreenTexture, mIdentityMatrix);
         mInputWindowSurface.setPresentationTime(System.nanoTime());    // TODO
         mInputWindowSurface.swapBuffers();
 
-        // Restore previous values.
-//        GLES20.glViewport(0, 0, mWindowWidth, mWindowHeight);
         mEglCore.makeCurrent(mWindowSurface);
     }
 
@@ -88,6 +117,10 @@ public class GLRecorder {
 
     public static void stopRecording() {
         setRecordingEnabled(false);
+    }
+
+    public static GLSurfaceView.EGLConfigChooser getEGLConfigChooser() {
+        return mDefaultConfigChooser;
     }
 
     /**
@@ -105,25 +138,24 @@ public class GLRecorder {
         mRecordingEnabled = enabled;
     }
 
-    public static void setup(int w, int h) {
+    private static void setup(int w, int h) {
         if (null != mIdentityMatrix) return;
         Log.d(TAG, "Setup GLRecorder");
 
-        mOutputFile = new File("/sdcard/glrecord.mp4");
+        mOutputFile = new File(RECORD_OUTPUT_FILE);
 
         mIdentityMatrix = new float[16];
         Matrix.setIdentityM(mIdentityMatrix, 0);
 
         mWindowSurface = mEglCore.getCurrentSurface();
-//        mWindowSurface = new WindowSurface(mEglCore, surface, false);
 
         // Used for blitting texture to FBO.
         mFullScreen = new FullFrameRect(
                 new Texture2dProgram(Texture2dProgram.ProgramType.TEXTURE_2D));
 
-        Activity activity = mActivityRef.get();
+/*        Activity activity = mActivityRef.get();
         if (null != activity) {
-/*            View contentView = activity.findViewById(android.R.id.content);
+            View contentView = activity.findViewById(android.R.id.content);
             int w = 0;
             int h = 0;
             if (null != contentView) {
@@ -133,8 +165,8 @@ public class GLRecorder {
             if (0 == w || 0 == h) {
                 w = activity.getResources().getDisplayMetrics().widthPixels;
                 h = activity.getResources().getDisplayMetrics().heightPixels;
-            }*/
-        }
+            }
+        }*/
         mWindowWidth = w;
         mWindowHeight = h;
         prepareFramebuffer(w, h);
@@ -146,33 +178,12 @@ public class GLRecorder {
      */
     private static void startEncoder() {
         Log.d(TAG, "starting to record");
-        // Record at 1280x720, regardless of the window dimensions.  The encoder may
-        // explode if given "strange" dimensions, e.g. a width that is not a multiple
+        // Record video size same as surface, regardless of the window dimensions.
+        // The encoder may explode if given "strange" dimensions, e.g. a width that is not a multiple
         // of 16.  We can box it as needed to preserve dimensions.
         final int BIT_RATE = 4000000;   // 4Mbps
         final int VIDEO_WIDTH = mWindowWidth;
         final int VIDEO_HEIGHT = mWindowHeight;
-        int windowWidth = mWindowWidth;//mWindowSurface.getWidth();
-        int windowHeight = mWindowHeight;//mWindowSurface.getHeight();
-//        final int VIDEO_WIDTH = windowWidth;
-//        final int VIDEO_HEIGHT = windowHeight;
-        float windowAspect = (float) windowHeight / (float) windowWidth;
-        int outWidth, outHeight;
-        if (VIDEO_HEIGHT > VIDEO_WIDTH * windowAspect) {
-            // limited by narrow width; reduce height
-            outWidth = VIDEO_WIDTH;
-            outHeight = (int) (VIDEO_WIDTH * windowAspect);
-        } else {
-            // limited by short height; restrict width
-            outHeight = VIDEO_HEIGHT;
-            outWidth = (int) (VIDEO_HEIGHT / windowAspect);
-        }
-        int offX = (VIDEO_WIDTH - outWidth) / 2;
-        int offY = (VIDEO_HEIGHT - outHeight) / 2;
-        mVideoRect.set(offX, offY, offX + outWidth, offY + outHeight);
-        Log.d(TAG, "Adjusting window " + windowWidth + "x" + windowHeight +
-                " to +" + offX + ",+" + offY + " " +
-                mVideoRect.width() + "x" + mVideoRect.height());
 
         VideoEncoderCore encoderCore;
         try {
@@ -243,7 +254,7 @@ public class GLRecorder {
         // Create a depth buffer and bind it.
         GLES20.glGenRenderbuffers(1, values, 0);
         GlUtil.checkGlError("glGenRenderbuffers");
-        mDepthBuffer = values[0];    // expected > 0
+        int mDepthBuffer = values[0];
         GLES20.glBindRenderbuffer(GLES20.GL_RENDERBUFFER, mDepthBuffer);
         GlUtil.checkGlError("glBindRenderbuffer " + mDepthBuffer);
 

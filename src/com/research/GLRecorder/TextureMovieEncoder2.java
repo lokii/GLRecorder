@@ -40,7 +40,6 @@ import java.lang.ref.WeakReference;
  * but it doesn't matter -- either it runs early and prevents blockage, or it runs late
  * and un-blocks the encoder.
  * <p>
- * TODO: reconcile this with TextureMovieEncoder.
  */
 public class TextureMovieEncoder2 implements Runnable {
     private static final String TAG = "";
